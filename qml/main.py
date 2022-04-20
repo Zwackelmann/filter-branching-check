@@ -1,4 +1,5 @@
-from lxml import objectify, etree
+from lxml import objectify
+# ToDo: implement DiGraph creation
 from networkx import DiGraph
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -99,17 +100,16 @@ def find_variables_in_descendants(element: objectify.ObjectifiedElement,
 
         # keep visible_condition as already 'true' if both are 'true'
         if visible_condition == 'true' and tmp_visible_condition == 'true':
-            print()
+            pass
         # keep visible_condition if tmp_visible_condition is 'true'
         elif visible_condition != 'true' and tmp_visible_condition == 'true':
-            print()
+            pass
         # set visible_condition to the value of tmp_visible_condition
         elif visible_condition == 'true' and tmp_visible_condition != 'true':
             visible_condition = tmp_visible_condition
-        # any other case: user cunjunction of both
+        # any other case: user conjunction of both
         else:
             visible_condition = f'({visible_condition}) and ({tmp_visible_condition})'
-        print()
     if 'variable' in element.attrib:
         # ToDo: uses global variable - don't forget that when refactoring!!
         variable_name = element.attrib['variable']
@@ -160,11 +160,11 @@ def list_of_preload_variables(root: objectify.ObjectifiedElement) -> list:
         return variables_list
 
 
-def page_transitions(page: objectify.ObjectifiedElement) -> tuple:
-    page_uid = page.attrib['uid']
+def page_transitions(page_object: objectify.ObjectifiedElement) -> tuple:
+    page_uid = page_object.attrib['uid']
     page_transitions_tuple = []
-    if hasattr(page, 'transitions'):
-        for transition_element in page.transitions.iterchildren():
+    if hasattr(page_object, 'transitions'):
+        for transition_element in page_object.transitions.iterchildren():
             if 'condition' in transition_element.attrib:
                 transition_condition = transition_element.attrib['condition']
             else:
@@ -199,7 +199,7 @@ if __name__ == '__main__':
     for page in page_generator(root=xml_root):
         for variable in variables_on_page_body(page=page):
             questionnaire.add_variable(variable)
-        questionnaire.add_transition_tuple(page_transitions(page=page))
+        questionnaire.add_transition_tuple(page_transitions(page_object=page))
 
         print()
     print()

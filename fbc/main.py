@@ -5,7 +5,7 @@ from fbc.util import show_graph
 
 
 def main():
-    p1, p2, p3, p4 = symbols("p1 p2 p3 p4")
+    p1, p2, p3, p4, p5 = symbols("p1 p2 p3 p4 p5")
 
     g = nx.DiGraph()
     g.add_nodes_from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
@@ -21,7 +21,12 @@ def main():
                       (6, 9, {"filter": true}),
                       (7, 9, {"filter": true}),
                       (8, 10, {"filter": true}),
-                      (9, 10, {"filter": true})])
+                      (9, 10, {"filter": true}),
+                      (11, 3, {"filter": true}),
+                      (1, 11, {"filter": p5}),
+                      (1, 12, {"filter": ~p5}),
+                      (12, 3, {"filter": true})
+                      ])
 
     if not graph_soundness_check(g, source=1):
         raise ValueError("Soundness check failed")

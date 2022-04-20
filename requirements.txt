@@ -2,3 +2,6 @@ sympy
 networkx
 matplotlib
 pygraphviz
+Pillow
+parsimonious
+lxml
