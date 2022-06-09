@@ -1,47 +1,13 @@
 import pyparsing as pp
+from fbc.lisp.core import infix_to_sexp
+
 pp.ParserElement.enablePackrat()
 
 
-def infix_to_lisp(tokens, op_assoc='left'):
+class SpringSexpParser:
     """
-    Converts a list of tokens from infix notation to lisp notation.
-
-    E.g. [1, '+', 2, '+', 3] -> ('+', ('+', 1, 2), 3)
-
-    :param tokens: list of tokens. Must be of unequal length. Every token on even position is considered as operand.
-                   Every token on uneven position is considered as operator.
-    :param op_assoc: operator association. Must be one of ['left', 'right']
-    :return: lisp representation
+    Parses spring expressions and returns them as an sexp expression
     """
-    if len(tokens) % 2 != 1:
-        raise ValueError("infix list must contain an uneven amount of items")
-
-    if op_assoc not in ['left', 'right']:
-        raise ValueError("`op_assoc` must one of ['left', 'right']")
-
-    ops = [tokens[(2*i)+1] for i in range(len(tokens) // 2)]
-    operands = [tokens[2*i] for i in range((len(tokens) // 2) + 1)]
-
-    if op_assoc == 'right':
-        ops = list(reversed(ops))
-        operands = list(reversed(operands))
-        if len(operands) >= 2:
-            operands = [operands[1], operands[0]] + operands[2:]
-
-    lisp = operands[0]
-    operands = operands[1:]
-
-    for op, operand in zip(ops, operands):
-        lisp = (op, lisp, operand)
-
-    return lisp
-
-
-class LispParser:
-    """
-    Defines a `LispParser` converting spring expressions into a lisp notation
-    """
-
     def __init__(self):
         self.keywords = {'true', 'false', 'gt', 'ge', 'lt', 'le', 'and', 'or'}
         self.scoped_identifier = pp.delimited_list(pp.common.identifier, delim='.') \
@@ -54,10 +20,10 @@ class LispParser:
 
         self.term = pp.infix_notation(self.term_plain, [
             ('-', 1, pp.opAssoc.RIGHT, lambda t: ('neg', t[0][1])),
-            ('*', 2, pp.opAssoc.LEFT, lambda t: infix_to_lisp(t[0])),
-            ('/', 2, pp.opAssoc.LEFT, lambda t: infix_to_lisp(t[0])),
-            ('+', 2, pp.opAssoc.LEFT, lambda t: infix_to_lisp(t[0])),
-            ('-', 2, pp.opAssoc.LEFT, lambda t: infix_to_lisp(t[0])),
+            ('*', 2, pp.opAssoc.LEFT, lambda t: infix_to_sexp(t[0])),
+            ('/', 2, pp.opAssoc.LEFT, lambda t: infix_to_sexp(t[0])),
+            ('+', 2, pp.opAssoc.LEFT, lambda t: infix_to_sexp(t[0])),
+            ('-', 2, pp.opAssoc.LEFT, lambda t: infix_to_sexp(t[0])),
         ])
 
         self.predicate = (
@@ -69,8 +35,8 @@ class LispParser:
 
         self.bool_exp = pp.infix_notation(self.bool_exp_plain, [
             ('!', 1, pp.opAssoc.RIGHT, lambda t: ('not', t[0][1])),
-            ('and', 2, pp.opAssoc.LEFT, lambda t: infix_to_lisp(t[0])),
-            ('or', 2, pp.opAssoc.LEFT, lambda t: infix_to_lisp(t[0]))
+            ('and', 2, pp.opAssoc.LEFT, lambda t: infix_to_sexp(t[0])),
+            ('or', 2, pp.opAssoc.LEFT, lambda t: infix_to_sexp(t[0]))
         ])
 
         self.function_argument = self.bool_exp | self.term | self.scoped_identifier
@@ -85,9 +51,24 @@ class LispParser:
 
     def parse(self, s):
         """
-        Parses given spring expression and converts it into a lisp expression
+        Parses given spring expression and converts it into an sexp expression
 
         :param s: spring expression
-        :return: lisp expression
+        :return: sexp expression
         """
         return self.bool_exp.parse_string(s, parse_all=True)[0]
+
+
+_DEFAULT_PARSER = None
+
+
+def default_parser():
+    global _DEFAULT_PARSER
+    if _DEFAULT_PARSER is None:
+        _DEFAULT_PARSER = SpringSexpParser()
+
+    return _DEFAULT_PARSER
+
+
+def parse_spring_sexp(s):
+    return default_parser().parse(s)

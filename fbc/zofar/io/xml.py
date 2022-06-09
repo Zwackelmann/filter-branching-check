@@ -90,6 +90,14 @@ def variable_declarations(root: ElementTree.Element) -> Dict[str, Variable]:
 
 
 def enum_values(page: ElementTree.Element, variables: Dict[str, Variable]) -> List[EnumValues]:
+    """
+    Gather possible values for variables in the given page. Possible values are gathered from `answerOption` elements
+    within `responseDomain` elements
+
+    :param page: page xml element
+    :param variables: dictionary mapping variable names to a `Variable` (see `variable_declarations`)
+    :return: list of `EnumValues`s
+    """
     body = page.find('zofar:body', ns)
     if body is None:
         return []
