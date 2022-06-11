@@ -1,12 +1,12 @@
-from fbc.zofar.env import construct_graph
-from fbc.util import draw_graph, show_graph
+from fbc.graph import draw_graph
+from fbc.zofar.module import zofar_graph
 from fbc.zofar.io.xml import read_questionnaire
 
 
 def main():
     q = read_questionnaire("data/questionnaire2.xml")
-    g = construct_graph(q)
-    show_graph(g)
+    g = zofar_graph(q)
+    draw_graph(g, 'graph.png')
 
 
 if __name__ == "__main__":

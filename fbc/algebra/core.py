@@ -1,5 +1,4 @@
-from sympy import false, Symbol
-from sympy import Eq, Not, And, Lt, Le, Gt, Ge, Ne, Or
+from sympy import false, Symbol, Eq, Not, And, Lt, Le, Gt, Ge, Ne, Or
 
 
 class AlgOps:
