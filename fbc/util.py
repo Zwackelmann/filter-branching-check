@@ -1,14 +1,9 @@
-import networkx as nx
-from networkx import bfs_edges
-from PIL import Image
-import io
-from pygraphviz.agraph import AGraph
-from typing import List, Any, Optional
+from typing import Optional, List, Tuple, Callable
 from contextlib import contextmanager
 import time
-
-
-
+from multiprocessing import cpu_count, Pool
+import random
+import string
 
 
 def flatten(ll):
@@ -100,3 +95,34 @@ def timer(start=None):
     """
     t = Timer(start)
     yield t
+
+
+def random_str(n, chars=None):
+    if chars is None:
+        chars = string.ascii_uppercase + string.digits
+
+    return ''.join(random.choice(chars) for _ in range(n))
+
+
+class PoolProcess:
+    pool_handles = {}
+
+    @staticmethod
+    def _process_single(pool_handle_key, *args):
+        return PoolProcess.pool_handles[pool_handle_key](*args)
+
+    @staticmethod
+    def process_batch(pool_handle: Callable, batch: List[Tuple], processes=None):
+        if processes is None:
+            processes = cpu_count()
+
+        pool_handle_key = random_str(20)
+
+        batch = [(pool_handle_key, ) + item for item in batch]
+        PoolProcess.pool_handles[pool_handle_key] = pool_handle
+        with Pool(processes) as pool:
+            result_batch = pool.starmap(PoolProcess._process_single, batch)
+
+        del PoolProcess.pool_handles[pool_handle_key]
+
+        return result_batch

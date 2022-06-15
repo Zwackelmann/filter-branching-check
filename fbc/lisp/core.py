@@ -56,7 +56,7 @@ def is_atom(sexp):
     return type(sexp) in atom_types
 
 
-def infix_to_sexp(tokens, op_assoc='left'):
+def infix_to_sexp(tokens):
     """
     Converts a list of tokens from infix notation to sexp notation.
 
@@ -64,29 +64,24 @@ def infix_to_sexp(tokens, op_assoc='left'):
 
     :param tokens: list of tokens. Must be of unequal length. Every token on even position is considered as operand.
                    Every token on uneven position is considered as operator.
-    :param op_assoc: operator association. Must be one of ['left', 'right']
     :return: sexp representation
     """
     if len(tokens) % 2 != 1:
         raise ValueError("infix list must contain an uneven amount of items")
 
-    if op_assoc not in ['left', 'right']:
-        raise ValueError("`op_assoc` must one of ['left', 'right']")
-
     ops = [tokens[(2*i)+1] for i in range(len(tokens) // 2)]
     operands = [tokens[2*i] for i in range((len(tokens) // 2) + 1)]
 
-    if op_assoc == 'right':
-        ops = list(reversed(ops))
-        operands = list(reversed(operands))
-        if len(operands) >= 2:
-            operands = [operands[1], operands[0]] + operands[2:]
+    if len(ops) != len(operands)-1 or len(ops) < 1:
+        raise ValueError(f"inconsistent operators or operands. ops: ${ops}, operands: {operands}")
 
-    sexp = operands[0]
-    operands = operands[1:]
+    sexp = (ops[0], operands[0], operands[1])
 
-    for op, operand in zip(ops, operands):
-        sexp = (op, sexp, operand)
+    for i in range(1, len(ops)):
+        if ops[i] == sexp[0]:
+            sexp = sexp + (operands[i+1], )
+        else:
+            sexp = (ops[i], sexp, operands[i+1])
 
     return sexp
 

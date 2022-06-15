@@ -39,7 +39,7 @@ class AlgInterpreter(Lisp):
         elif type(a) == float:
             return Float(a)
         elif type(a) == bool:
-            return Boolean(a)
+            return a
         elif type(a) == str:
             return Symbol(a, integer=True, finite=True)
         else:

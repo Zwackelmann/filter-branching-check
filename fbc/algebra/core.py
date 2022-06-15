@@ -1,4 +1,5 @@
-from sympy import false, Symbol, Eq, Not, And, Lt, Le, Gt, Ge, Ne, Or
+from sympy import false, Symbol, Eq, Not, And, Lt, Le, Gt, Ge, Ne, Or, Add, Mul, Pow
+from functools import reduce
 
 
 class AlgOps:
@@ -12,15 +13,15 @@ class AlgOps:
 
     relation = {**inequation, **equal}
 
-    binary_logic = {"and": lambda a, b: And(a, b),
-                    "or": lambda a, b: Or(a, b)}
+    binary_logic = {"and": lambda *args: And(*args),
+                    "or": lambda *args: Or(*args)}
 
     unary_logic = {'not': lambda a: Not(a)}
 
-    binary_arith = {'+': lambda a, b: a + b,
-                    '-': lambda a, b: a - b,
-                    '*': lambda a, b: a * b,
-                    '/': lambda a, b: a / b}
+    binary_arith = {'+': lambda *args: Add(*args),
+                    '-': lambda *args: Add(*([args[0]] + [Mul(a, -1) for a in args[1:]])),
+                    '*': lambda *args: Mul(*args),
+                    '/': lambda *args: Mul(*([args[0]] + [Pow(a, -1) for a in args[1:]]))}
 
     unary_arith = {'neg': lambda a: -a}
 
@@ -36,15 +37,15 @@ class ExplOps:
 
     relation = {**inequation, **equal}
 
-    binary_logic = {'and': lambda a, b: a and b,
-                    'or': lambda a, b: a or b}
+    binary_logic = {'and': lambda *args: reduce(lambda a, b: a and b, args),
+                    'or': lambda *args: reduce(lambda a, b: a or b, args)}
 
     unary_logic = {'not': lambda a: not a}
 
-    binary_arith = {'+': lambda a, b: a + b,
-                    '-': lambda a, b: a - b,
-                    '*': lambda a, b: a * b,
-                    '/': lambda a, b: a / b}
+    binary_arith = {'+': lambda *args: reduce(lambda a, b: a + b, args),
+                    '-': lambda *args: reduce(lambda a, b: a - b, args),
+                    '*': lambda *args: reduce(lambda a, b: a * b, args),
+                    '/': lambda *args: reduce(lambda a, b: a / b, args)}
 
     unary_arith = {'neg': lambda a: -a}
 

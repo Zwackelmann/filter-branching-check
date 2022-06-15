@@ -1,14 +1,15 @@
 from fbc.lisp.core import DictScope, Macro, Scope
 from fbc.lisp.env import LispEnv
 from fbc.lisp.macros import Compiler, ResolveEnums
+from fbc.zofar.io.parse import SpringSexpParser
 from fbc.graph import transition_graph
-from typing import Any
-from fbc.zofar.io.parse import parse_spring_sexp
+from typing import Any, Tuple
 from fbc.algebra.core import Enum
 from typing import List
 from fbc.zofar.io import xml
-from fbc.util import flatten, group_by
+from fbc.util import flatten, group_by, PoolProcess
 import networkx as nx
+from sympy import true
 
 
 class ZofarModule:
@@ -138,11 +139,26 @@ def enum_dict(pages: List[xml.Page]):
     return enums
 
 
-def zofar_graph(q: xml.Questionnaire) -> nx.Graph:
+def parse_handle(env: LispEnv):
+    def f(source, condition, target):
+        if condition is None or condition.strip() == "":
+            return source, true, target
+
+        return source, env.eval(condition), target
+
+    return f
+
+
+def zofar_env(q: xml.Questionnaire) -> LispEnv:
     enums = enum_dict(q.pages)
     variables = {v.name: ZofarVariable.from_variable(v) for v in q.variables.values()}
     scope = DictScope({**variables, **{'zofar': ZofarModule.new_dict_scope(), 'ENUM': enums}})
 
-    env = LispEnv(sexp_parser=parse_spring_sexp, scope=scope, macros=[Compiler, ResolveEnums])
+    parser = SpringSexpParser()
+    return LispEnv(sexp_parser=parser.parse, scope=scope, macros=[Compiler, ResolveEnums])
+
+
+def zofar_graph(q: xml.Questionnaire) -> Tuple[LispEnv, nx.DiGraph]:
+    env = zofar_env(q)
     trans_dict = {page.uid: [(trans.condition, trans.target_uid) for trans in page.transitions] for page in q.pages}
-    return transition_graph(env, trans_dict)
+    return env, transition_graph(trans_dict)

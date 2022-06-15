@@ -1,10 +1,10 @@
 import networkx as nx
 from functools import reduce
 from typing import Any, List, Dict, Tuple
-from fbc.util import flatten
-from sympy import false, Expr, And, true, Not, simplify
+from fbc.util import flatten, PoolProcess
+from sympy import false, Expr, And, true, Not, simplify, Or
+from sympy import evaluate as sympy_evaluate
 from fbc.algebra.core import Enum
-from fbc.lisp.env import LispEnv
 from networkx import bfs_edges
 from PIL import Image
 import io
@@ -38,7 +38,7 @@ def evaluate_node_predicates(g: nx.DiGraph, source: Any, enums: List[Enum]) -> A
         for v in nodes:
             in_edges = g.in_edges(v, data=True)
 
-            if len(in_edges) == 0:
+            if len(in_edges) == 0 or all([e[0] == v for e in in_edges]):
                 g.nodes[v].update({"pred": true})
 
                 processed_nodes.add(v)
@@ -170,7 +170,7 @@ def show_graph(g: nx.Graph, image_format='png') -> None:
     image.show()
 
 
-def transition_graph(env: LispEnv, transitions: Dict[str, List[Tuple[str, str]]]):
+def transition_graph(transitions: Dict[str, List[Tuple[Tuple, str]]]):
     nodes = set()
     nodes.update(transitions.keys())
     nodes.update(flatten([[target for _, target in trans_list] for trans_list in transitions.values()]))
@@ -180,17 +180,45 @@ def transition_graph(env: LispEnv, transitions: Dict[str, List[Tuple[str, str]]]
 
     edges = []
     for source_node_id, node_transitions in transitions.items():
+        edge_filters = {}
         neg_trans_filters = []
         for cond, target_node_id in node_transitions:
-            if cond is not None:
-                trans_filter = env.eval(cond)
+            excluding_trans_filter = And(*(neg_trans_filters + [cond]))
+            if (source_node_id, target_node_id) in edge_filters:
+                edge_filter = Or(edge_filters[(source_node_id, target_node_id)], excluding_trans_filter)
             else:
-                trans_filter = true
+                edge_filter = excluding_trans_filter
 
-            excluding_trans_filter = simplify(And(*neg_trans_filters + [trans_filter]))
-            edges.append((source_node_id, target_node_id, {'filter': excluding_trans_filter}))
-            neg_trans_filters.append(Not(trans_filter))
+            edge_filters[(source_node_id, target_node_id)] = edge_filter
+            neg_trans_filters.append(Not(cond))
+
+        edges.extend([(sn, tn, {'filter': fi})for (sn, tn), fi in edge_filters.items()])
 
     g.add_edges_from(edges)
+
+    # resolve self circles since we don't allow circles other than self circles yet.
+    # A condition to itself implies that all edges will have the negated condition conjoined
+    circles = list(nx.simple_cycles(g))
+    if any([len(c) != 1 for c in circles]):
+        raise ValueError('Circles are not allowed except self circles')
+
+    circle_nodes = [c[0] for c in circles]
+    for v in circle_nodes:
+        self_filter = g.edges[v, v]['filter']
+        edges = list(g.out_edges(v, data=True))
+
+        for _u, _v, _data in edges:
+            if _u == _v:
+                continue
+            # g.edges[_u, _v].update({'filter': ~self_filter & _data['filter']})
+            pass
+
+        g.remove_edge(v, v)
+
+    simplified_data = PoolProcess.process_batch(
+        lambda nfrom, nto, ndata: (nfrom, nto, {'filter': simplify(ndata['filter'])}), g.edges(data=True))
+
+    for edge_from, edge_to, data in simplified_data:
+        g.edges[edge_from, edge_to]['filter'] = data['filter']
 
     return g

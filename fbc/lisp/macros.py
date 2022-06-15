@@ -67,22 +67,21 @@ class Compiler(Lisp):
         return macro_handle(*fun_args)
 
     @Lisp.handle(ExplOps.binary_arith, default=Lisp.NOOP)
-    def handle_binary_arith_ops(self, op, lop, rop):
+    def handle_binary_arith_ops(self, op, *operands):
         """
         Syntax: ('<op>', <lop>, <rop>) e.g. ('+', 1, 2)
 
         Applies the operation on the operands, if all operands are number atoms
 
         :param op: operator
-        :param lop: left operand
-        :param rop: right operand
+        :param operands: list of operand
         :return: result
         """
         # evaluate arithmetic ops containing only atoms
-        if all([sexp_type(o) == 'number' for o in [lop, rop]]):
-            return ExplOps.binary_arith[op](lop, rop)
-        elif op == '+' and all([sexp_type(o) == 'string' for o in [lop, rop]]):
-            return lop + rop
+        if all([sexp_type(o) == 'number' for o in operands]):
+            return ExplOps.binary_arith[op](*operands)
+        elif op == '+' and all([sexp_type(o) == 'string' for o in operands]):
+            return "".join(operands)
 
     @Lisp.handle(ExplOps.unary_arith, default=Lisp.NOOP)
     def handle_unary_arith_ops(self, op, lop):
@@ -113,9 +112,9 @@ class TypeResolver(Lisp):
         return 'boolean'
 
     @Lisp.handle(ExplOps.binary_logic)
-    def handle_binary_logic_ops(self, op, ltype, rtype):
-        if not all([t == 'boolean' for t in [ltype, rtype]]):
-            raise ValueError(f"expected boolean operands in {(op, ltype, rtype)}")
+    def handle_binary_logic_ops(self, op, *op_types):
+        if not all([t == 'boolean' for t in op_types]):
+            raise ValueError(f"expected boolean operands in {(op, op_types)}")
 
         return 'boolean'
 
@@ -127,9 +126,9 @@ class TypeResolver(Lisp):
         return 'boolean'
 
     @Lisp.handle(ExplOps.binary_arith)
-    def handle_binary_arith_ops(self, op, ltype, rtype):
-        if not all([t == 'number' for t in [ltype, rtype]]):
-            raise ValueError(f"{(op, ltype, rtype)} contains an unexpected type")
+    def handle_binary_arith_ops(self, op, *op_types):
+        if not all([t == 'number' for t in op_types]):
+            raise ValueError(f"{(op, op_types)} contains an unexpected type")
 
         return 'number'
 
@@ -186,11 +185,12 @@ class ResolveEnums(Lisp):
         if sym_type != lit_type:
             raise ValueError(f"types incompatible in {(op, lop, rop)}. {sym_type} != {lit_type}")
 
-        if op in ExplOps.inequation:
+        ops = {**ExplOps.inequation, "!=": ExplOps.relation['!=']}
+        if op in ops:
             if not (lit_type == sym_type == enum.typ == 'number'):
                 raise ValueError(f"inequation with enum type can only be resolved with numbers")
 
-            ineq = ExplOps.inequation[op]
+            ineq = ops[op]
             valid_lit = [e for e in enum if ineq(e, lit)]
             lit_symbols = [('symbol', enum.member_vars[li], lit_type) for li in valid_lit]
 
@@ -213,4 +213,35 @@ class ResolveEnums(Lisp):
 
     @Lisp.handle(lambda *_: True, leafs=Lisp.ALL)
     def ignore_rest(self, *_):
+        return Lisp.NOOP
+
+
+class ResolveNot(Lisp):
+    @Lisp.handle("not")
+    def handle_not(self, _, term):
+        if sexp_type(term) == "not":
+            return term[1]
+        elif sexp_type(term) == "and":
+            return "or", ResolveNot.eval(('not', term[1])), ResolveNot.eval(('not', term[2]))
+        elif sexp_type(term) == "or":
+            return "and", ResolveNot.eval(('not', term[1])), ResolveNot.eval(('not', term[2]))
+        elif sexp_type(term) == "!=":
+            return "==", term[1], term[2]
+        elif sexp_type(term) == "==":
+            return "!=", term[1], term[2]
+        elif sexp_type(term) == "lt":
+            return "ge", term[1], term[2]
+        elif sexp_type(term) == "le":
+            return "gt", term[1], term[2]
+        elif sexp_type(term) == "gt":
+            return "le", term[1], term[2]
+        elif sexp_type(term) == "ge":
+            return "lt", term[1], term[2]
+        elif sexp_type(term) == 'symbol' or is_atom(term):
+            return Lisp.NOOP
+        else:
+            raise ValueError("")
+
+    @Lisp.handle('symbol', leafs=Lisp.ALL)
+    def handle_symbol(self, *_):
         return Lisp.NOOP
