@@ -3,8 +3,11 @@ from functools import reduce
 from typing import Any, List, Dict, Tuple
 from fbc.util import flatten, PoolProcess
 from sympy import false, Expr, And, true, Not, simplify, Or
+from sympy.logic.boolalg import to_dnf, to_cnf, Boolean
+from fbc.lisp.macros import Simplify, ResolveEnums
 from sympy import evaluate as sympy_evaluate
-from fbc.algebra.core import Enum
+from fbc.algebra.core import Enum, simplify_enum
+from fbc.algebra.eval import AlgInterpreter
 from networkx import bfs_edges
 from PIL import Image
 import io
@@ -51,9 +54,12 @@ def evaluate_node_predicates(g: nx.DiGraph, source: Any, enums: List[Enum]) -> A
 
                 # determine node predicate via conjunction of each `node predicate`-`edge filter` pair and
                 # disjunction of those results
-                node_pred = simplify_enums(simplify(reduce(lambda res, p: res | (p[0] & p[1]), in_nodes, false)), enums)
-                g.nodes[v].update({"pred": node_pred})
+                # node_pred = simplify_enums(simplify(reduce(lambda res, p: res | (p[0] & p[1]), in_nodes, false)), enums)
 
+                node_pred = simp(Or(*[And(node_pred, edge_filter) for node_pred, edge_filter in in_nodes]))
+
+                # node_pred = ('or', ) + tuple([('and', node_pred, edge_filter) for node_pred, edge_filter in in_nodes])
+                g.nodes[v].update({"pred": node_pred})
                 processed_nodes.add(v)
 
         if len(processed_nodes) == 0:
@@ -170,7 +176,55 @@ def show_graph(g: nx.Graph, image_format='png') -> None:
     image.show()
 
 
-def transition_graph(transitions: Dict[str, List[Tuple[Tuple, str]]]):
+def esimp(expr):
+    min_expr = expr
+    min_ops = expr.count_ops()
+
+    while True:
+        print(min_ops)
+        dnf_expr = simplify_enum(to_dnf(min_expr))
+        dnf_ops = dnf_expr.count_ops()
+
+        cnf_expr = simplify_enum(to_cnf(min_expr))
+        cnf_ops = cnf_expr.count_ops()
+
+        if min(dnf_ops, cnf_ops, min_ops - 1) == dnf_ops:
+            min_expr = dnf_expr
+            min_ops = dnf_ops
+        elif min(dnf_ops, cnf_ops, min_ops - 1) == cnf_ops:
+            min_expr = cnf_expr
+            min_ops = cnf_ops
+        else:
+            break
+
+    return min_expr
+
+
+def simp(expr):
+    min_expr = expr
+    min_ops = expr.count_ops()
+
+    while True:
+        print(min_ops)
+        esimp_expr = esimp(min_expr)
+        esimp_ops = esimp_expr.count_ops()
+
+        gsimp_expr = min_expr.simplify()
+        gsimp_ops = gsimp_expr.count_ops()
+
+        if min(esimp_ops, gsimp_ops, min_ops - 1) == esimp_ops:
+            min_expr = esimp_expr
+            min_ops = esimp_ops
+        elif min(esimp_ops, gsimp_ops, min_ops - 1) == gsimp_ops:
+            min_expr = gsimp_expr
+            min_ops = gsimp_ops
+        else:
+            break
+
+    return min_expr
+
+
+def transition_graph(transitions: Dict[str, List[Tuple[Boolean, str]]]):
     nodes = set()
     nodes.update(transitions.keys())
     nodes.update(flatten([[target for _, target in trans_list] for trans_list in transitions.values()]))
@@ -183,16 +237,26 @@ def transition_graph(transitions: Dict[str, List[Tuple[Tuple, str]]]):
         edge_filters = {}
         neg_trans_filters = []
         for cond, target_node_id in node_transitions:
-            excluding_trans_filter = And(*(neg_trans_filters + [cond]))
+            if cond is not None:
+                excluding_trans_filter = And(*(neg_trans_filters + [cond]))
+            else:
+                excluding_trans_filter = And(*neg_trans_filters)
+
+            excluding_trans_filter = simp(excluding_trans_filter)
+
             if (source_node_id, target_node_id) in edge_filters:
                 edge_filter = Or(edge_filters[(source_node_id, target_node_id)], excluding_trans_filter)
             else:
                 edge_filter = excluding_trans_filter
 
-            edge_filters[(source_node_id, target_node_id)] = edge_filter
-            neg_trans_filters.append(Not(cond))
+            if cond is not None:
+                neg_trans_filters.append(simplify_enum(Not(cond)))
+            else:
+                neg_trans_filters.append(false)
 
-        edges.extend([(sn, tn, {'filter': fi})for (sn, tn), fi in edge_filters.items()])
+            edge_filters[(source_node_id, target_node_id)] = simp(edge_filter)
+
+        edges.extend([(sn, tn, {'filter': fi}) for (sn, tn), fi in edge_filters.items()])
 
     g.add_edges_from(edges)
 
@@ -215,10 +279,23 @@ def transition_graph(transitions: Dict[str, List[Tuple[Tuple, str]]]):
 
         g.remove_edge(v, v)
 
-    simplified_data = PoolProcess.process_batch(
-        lambda nfrom, nto, ndata: (nfrom, nto, {'filter': simplify(ndata['filter'])}), g.edges(data=True))
+    """simplified_data = []
+    for nfrom, nto, ndata in g.edges(data=True):
+        if nfrom == "A01" and nto == 'A04':
+            print(nfrom)
+
+        filter_data = ndata['filter']
+        esolved = ResolveEnums(scope).eval_step(filter_data)
+        esolved = Simplify.eval(esolved)
+        # inter = AlgInterpreter.eval(esolved)
+        # inter = simplify(inter)
+        _ndata = {'filter': esolved}
+        simplified_data.append((nfrom, nto, _ndata))
+
+    # simplified_data = PoolProcess.process_batch(
+    #     lambda nfrom, nto, ndata: (nfrom, nto, {'filter': simplify(AlgInterpreter.eval(ResolveEnums.eval(ndata['filter'], scope)))}), g.edges(data=True))
 
     for edge_from, edge_to, data in simplified_data:
-        g.edges[edge_from, edge_to]['filter'] = data['filter']
+        g.edges[edge_from, edge_to]['filter'] = data['filter']"""
 
     return g

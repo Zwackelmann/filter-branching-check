@@ -1,5 +1,7 @@
 from fbc.lisp.core import Lisp, is_atom, is_enum_sexp, sexp_like, sexp_type
-from fbc.algebra.core import ExplOps
+from fbc.algebra.core import ExplOps, Enum
+from collections import defaultdict
+from functools import reduce
 
 
 class Compiler(Lisp):
@@ -143,6 +145,10 @@ class TypeResolver(Lisp):
     def handle_symbol(self, _, __, stype):
         return stype
 
+    @Lisp.handle(['in', 'nin'], leafs=Lisp.ALL)
+    def handle_enum(self, *_):
+        return 'boolean'
+
     @Lisp.handle(is_atom)
     def handle_atom(self, a):
         return sexp_type(a)
@@ -165,7 +171,7 @@ class ResolveEnums(Lisp):
     enum domain set that satisfy the in inequation.
     """
 
-    @Lisp.handle(ExplOps.relation, default=Lisp.NOOP)
+    @Lisp.handle({**ExplOps.inequation, **ExplOps.equal}, default=Lisp.NOOP)
     def handle_relation_ops(self, op, lop, rop):
         enums = self.scope['ENUM']
 
@@ -187,44 +193,31 @@ class ResolveEnums(Lisp):
 
         ops = {**ExplOps.inequation, "!=": ExplOps.relation['!=']}
         if op in ops:
-            if not (lit_type == sym_type == enum.typ == 'number'):
-                raise ValueError(f"inequation with enum type can only be resolved with numbers")
-
             ineq = ops[op]
-            valid_lit = [e for e in enum if ineq(e, lit)]
-            lit_symbols = [('symbol', enum.member_vars[li], lit_type) for li in valid_lit]
-
-            if len(lit_symbols) == 0:
-                raise ValueError("empty set of literals after resolving inequation")
-
-            eq_sexps = [("==", ('symbol', enum.var, lit_type), li) for li in lit_symbols]
-            if len(eq_sexps) == 1:
-                return eq_sexps[0]
-            else:
-                or_sexp = ('or', eq_sexps[0], eq_sexps[1])
-                for eq_sexp in eq_sexps[2:]:
-                    or_sexp = ('or', or_sexp, eq_sexp)
-                return or_sexp
-        else:
+            valid_lit = {e for e in enum if ineq(e, lit)}
+            return 'in', enum, valid_lit
+        elif op == '==':
             if lit not in enum:
                 raise ValueError(f"{sym_name} must be one of {enum}. Found {lit}")
 
-            return op, ('symbol', enum.var, lit_type), ('symbol', enum.member_vars[lit], lit_type)
+            return 'in', enum, {lit}
+        else:
+            raise ValueError(f"unexpected operator: ${op}")
 
-    @Lisp.handle(lambda *_: True, leafs=Lisp.ALL)
-    def ignore_rest(self, *_):
+    @Lisp.handle('symbol', leafs=Lisp.ALL)
+    def handle_symbol(self, *_):
         return Lisp.NOOP
 
 
-class ResolveNot(Lisp):
+class Simplify(Lisp):
     @Lisp.handle("not")
     def handle_not(self, _, term):
         if sexp_type(term) == "not":
             return term[1]
         elif sexp_type(term) == "and":
-            return "or", ResolveNot.eval(('not', term[1])), ResolveNot.eval(('not', term[2]))
+            return ("or", ) + tuple([Simplify.eval(('not', t)) for t in term[1:]])
         elif sexp_type(term) == "or":
-            return "and", ResolveNot.eval(('not', term[1])), ResolveNot.eval(('not', term[2]))
+            return ("and", ) + tuple([Simplify.eval(('not', t)) for t in term[1:]])
         elif sexp_type(term) == "!=":
             return "==", term[1], term[2]
         elif sexp_type(term) == "==":
@@ -237,11 +230,115 @@ class ResolveNot(Lisp):
             return "le", term[1], term[2]
         elif sexp_type(term) == "ge":
             return "lt", term[1], term[2]
+        elif sexp_type(term) == 'in':
+            return 'nin', term[1], term[2]
+        elif sexp_type(term) == 'nin':
+            return 'in', term[1], term[2]
+        elif type(term) == bool:
+            return not term
         elif sexp_type(term) == 'symbol' or is_atom(term):
             return Lisp.NOOP
         else:
             raise ValueError("")
 
-    @Lisp.handle('symbol', leafs=Lisp.ALL)
-    def handle_symbol(self, *_):
+    @Lisp.handle({**ExplOps.binary_arith, **ExplOps.binary_logic})
+    def handle_transitive_binary(self, op, *terms):
+        res = []
+        for term in terms:
+            if sexp_type(term) == op:
+                res.extend(term[1:])
+            else:
+                res.append(term)
+
+        if op == 'and':
+            res = self.simplify_and(res)
+        elif op == 'or':
+            res = self.simplify_or(res)
+
+        if len(res) == 0:
+            raise ValueError()
+        elif len(res) == 1:
+            return res[0]
+        else:
+            return (op, ) + tuple(res)
+
+    @Lisp.handle('nin', leafs=Lisp.ALL)
+    def handle_nin(self, _, sym, lset):
+        if isinstance(sym, Enum):
+            return 'in', sym, sym.members.difference(lset)
+        else:
+            return 'nin', sym, lset
+
+    @Lisp.handle(['symbol', 'in'], leafs=Lisp.ALL)
+    def ignore(self, *_):
         return Lisp.NOOP
+
+    def simplify_and(self, terms):
+        ins = {}
+        nins = {}
+        out_terms = []
+        for term in terms:
+            if sexp_type(term) == 'in':
+                _, sym, lset = term
+                if sym in ins:
+                    ins[sym] = ins[sym].intersection(lset)
+                else:
+                    ins[sym] = lset
+            elif sexp_type(term) == 'nin':
+                _, sym, lset = term
+                if sym in nins:
+                    nins[sym] = nins[sym].union(lset)
+                else:
+                    nins[sym] = lset
+            else:
+                out_terms.append(term)
+
+        for sym in set(ins.keys()).union(nins.keys()):
+            if sym not in ins and sym in nins:
+                out_terms.append(self.handle_nin(('nin', sym, nins[sym])))
+            else:
+                in_set = ins.get(sym, set())
+                nin_set = nins.get(sym, set())
+
+                in_set = in_set.difference(nin_set)
+
+                if len(in_set) >= 1:
+                    out_terms.append(('in', sym, in_set))
+                else:
+                    out_terms.append(False)
+        return out_terms
+
+    def simplify_or(self, terms):
+        ins = {}
+        nins = {}
+        out_terms = []
+        for term in terms:
+            if sexp_type(term) == 'in':
+                _, sym, lset = term
+                if sym in ins:
+                    ins[sym] = ins[sym].union(lset)
+                else:
+                    ins[sym] = lset
+            elif sexp_type(term) == 'nin':
+                _, sym, lset = term
+                if sym in nins:
+                    nins[sym] = nins[sym].intersection(lset)
+                else:
+                    nins[sym] = lset
+            else:
+                out_terms.append(term)
+
+        for sym in set(ins.keys()).union(nins.keys()):
+            if sym in ins and sym not in nins:
+                out_terms.append(('in', sym, ins[sym]))
+            else:
+                in_set = ins.get(sym, set())
+                nin_set = nins.get(sym, set())
+
+                nin_set = nin_set.difference(in_set)
+                if len(nin_set) >= 1:
+                    out_terms.append(self.handle_nin(('nin', sym, nin_set)))
+                else:
+                    out_terms.append(True)
+
+        return out_terms

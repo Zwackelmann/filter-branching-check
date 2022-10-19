@@ -38,8 +38,7 @@ class LispEnv:
         with sympy_evaluate(False):
             expr = AlgInterpreter.eval(sexp)
 
-        expr.doit()
-        return expr
+        return expr.simplify()
 
     def eval(self, s):
         sexp = self.sexp_parser(s)

@@ -1,6 +1,6 @@
 from fbc.lisp.core import DictScope, Macro, Scope
 from fbc.lisp.env import LispEnv
-from fbc.lisp.macros import Compiler, ResolveEnums
+from fbc.lisp.macros import Compiler, ResolveEnums, Simplify
 from fbc.zofar.io.parse import SpringSexpParser
 from fbc.graph import transition_graph
 from typing import Any, Tuple
@@ -132,8 +132,8 @@ def enum_dict(pages: List[xml.Page]):
             raise ValueError(f"Empty enum found: {var}")
         else:
             v, n = zip(*veg.items())
-            uid_enum = Enum(var, v, 'string')
-            number_enum = Enum(f"{var}_NUM", n, 'number')
+            uid_enum = Enum(var, v)
+            number_enum = Enum(f"{var}_NUM", n)
             enums = {**enums, **{var: uid_enum, f"{var}_NUM": number_enum}}
 
     return enums
@@ -155,10 +155,13 @@ def zofar_env(q: xml.Questionnaire) -> LispEnv:
     scope = DictScope({**variables, **{'zofar': ZofarModule.new_dict_scope(), 'ENUM': enums}})
 
     parser = SpringSexpParser()
-    return LispEnv(sexp_parser=parser.parse, scope=scope, macros=[Compiler, ResolveEnums])
+    return LispEnv(sexp_parser=parser.parse, scope=scope, macros=[Compiler, Simplify, ResolveEnums])
 
 
 def zofar_graph(q: xml.Questionnaire) -> Tuple[LispEnv, nx.DiGraph]:
     env = zofar_env(q)
     trans_dict = {page.uid: [(trans.condition, trans.target_uid) for trans in page.transitions] for page in q.pages}
+
+    trans_dict = {p: [((True if c is None else env.eval(c)), t) for c, t in trans] for p, trans in trans_dict.items()}
+
     return env, transition_graph(trans_dict)
